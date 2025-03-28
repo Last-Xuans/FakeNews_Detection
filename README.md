@@ -23,10 +23,10 @@ bash
 pip install -r requirements.txt
 ```
 3. 配置环境变量：
-在项目根目录创建`.env`文件，添加以下内容（以百度云API为例）：
+在项目根目录创建`.env`文件（我已经创建了我自己的），添加以下内容（以百度云API为例）：
 ```
 LLM_API_URL=https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/completions 
-LLM_API_KEY=你的API_KEY LLM_SECRET_KEY=你的SECRET_KEY
+LLM_API_KEY=你的API_KEY
 ```
 4. 使用方法:
 ```
