@@ -20,8 +20,8 @@
 - 可选：Google Custom Search API（用于网络搜索验证功能）
 
 ##创建/启用conda环境
-conda create -n your_env_name python=3.8
-conda activate your_env_name
+- conda create -n your_env_name python=3.8
+- conda activate your_env_name
 
 ## 安装步骤
 
