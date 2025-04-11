@@ -134,24 +134,23 @@ class FakeNewsDetector:
         # 添加风险级别评估
         risk_percentage = result["conclusion"]["risk_percentage"]
         
-        # 检查是否需要强制进行网络验证
+        # 检查是否需要进行网络验证 - 不再强制验证，只建议验证
         should_validate = False
-        forced_validation = False
         
         # 默认情况下，只对中高风险新闻进行验证
         if self.enable_web_search and risk_percentage >= THRESHOLDS["LOW_RISK_THRESHOLD"]:
             should_validate = True
         
-        # 如果有知识截止日期问题，强制进行网络验证
-        if "requires_web_validation" in result and result["requires_web_validation"]:
-            should_validate = True
-            forced_validation = True
-            logger.info("因知识截止日期问题，强制进行网络验证")
+        # 如果存在知识截止日期问题，标记为需要建议进行网络验证，但不强制
+        if "metadata" in result and result["metadata"].get("knowledge_cutoff_issue", False):
+            result["recommends_web_validation"] = True
+            if "conclusion" in result:
+                result["conclusion"]["explanation"] += "\n\n注意：部分规则因超出模型知识截止日期而无法验证，建议使用网络搜索获取最新信息"
         
         # 执行网络搜索验证
         web_search_result = None
         if self.enable_web_search and should_validate:
-            web_search_result = self.validate_with_web_search(processed_data, forced_by_cutoff=forced_validation)
+            web_search_result = self.validate_with_web_search(processed_data)
             
             # 根据网络搜索结果调整风险评估
             if web_search_result:
@@ -224,12 +223,11 @@ class FakeNewsDetector:
             logger.info(f"使用调整后的权重重新计算风险百分比: {risk_percentage:.2f}%")
             result["conclusion"]["risk_percentage"] = round(risk_percentage)
         
-    def validate_with_web_search(self, news_data: Dict[str, Any], forced_by_cutoff: bool = False) -> Dict[str, Any]:
+    def validate_with_web_search(self, news_data: Dict[str, Any]) -> Dict[str, Any]:
         """使用网络搜索验证新闻真实性
         
         Args:
             news_data: 预处理后的新闻数据
-            forced_by_cutoff: 是否因知识截止日期问题强制验证
             
         Returns:
             验证结果
@@ -239,40 +237,5 @@ class FakeNewsDetector:
         
         # 执行网络验证
         web_result = self.web_validator.validate_news(news_data)
-        
-        # 如果是因知识截止日期问题强制验证，调整风险评分幅度
-        if forced_by_cutoff and web_result:
-            # 根据验证结果的可信度分级调整风险值
-            consistency_score = web_result["validation_results"]["consistency_score"]
-            
-            # 提高网络搜索验证结果在知识截止日期问题时的影响
-            if consistency_score >= 70:
-                # 高可信度证实，大幅降低风险
-                web_result["risk_adjustment"] = max(-25, web_result["risk_adjustment"] * 1.5)
-                web_result["explanation"] += " (因超出知识截止日期，网络验证结果更具参考价值)"
-            elif consistency_score <= 20:
-                # 低可信度反驳，适度提高风险
-                web_result["risk_adjustment"] = min(25, web_result["risk_adjustment"] * 1.5)
-                web_result["explanation"] += " (因超出知识截止日期，网络验证结果更具参考价值)"
-            else:
-                # 一般可信度，小幅调整
-                web_result["risk_adjustment"] = web_result["risk_adjustment"] * 1.2
-                web_result["explanation"] += " (验证结果可信度一般)"
-        else:
-            # 非强制验证情况下，也增强网络搜索验证的影响
-            if web_result:
-                consistency_score = web_result["validation_results"]["consistency_score"]
-                original_adjustment = web_result["risk_adjustment"]
-                
-                # 分级调整风险值
-                if consistency_score >= 70:
-                    # 证据充分，最多调整±20%
-                    web_result["risk_adjustment"] = max(-20, min(20, original_adjustment * 1.2))
-                elif consistency_score >= 40:
-                    # 证据中等，最多调整±15%
-                    web_result["risk_adjustment"] = max(-15, min(15, original_adjustment * 1.1))
-                else:
-                    # 证据较弱，最多调整±10%
-                    web_result["risk_adjustment"] = max(-10, min(10, original_adjustment))
         
         return web_result

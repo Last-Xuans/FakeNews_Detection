@@ -3,7 +3,7 @@ import re
 from datetime import datetime
 
 # 定义LLM知识截止日期（根据使用的模型进行调整）
-KNOWLEDGE_CUTOFF_DATE = "2023年9月"  # 通义千问模型知识截止日期
+KNOWLEDGE_CUTOFF_DATE = "2025年1月15日"  # 豆包模型知识截止日期
 
 # 定义新闻检测规则
 DETECTION_RULES = [

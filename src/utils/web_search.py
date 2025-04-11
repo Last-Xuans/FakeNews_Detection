@@ -200,122 +200,149 @@ class WebSearchValidator:
         except:
             return ""
     
-    def validate_news(self, news_data: Dict[str, Any], search_results: List[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """验证新闻真实性
+    def validate_news(self, news_data: Dict[str, Any], search_results: List[Dict[str, Any]] = None, max_results: int = 8) -> Dict[str, Any]:
+        """验证新闻内容
         
         Args:
-            news_data: 新闻数据
-            search_results: 可选的搜索结果，如果为None则自动搜索
+            news_data: 新闻数据，包含标题和内容
+            search_results: 可选的预设搜索结果，为None时会自动执行搜索
+            max_results: 搜索结果的最大数量，默认为8个结果
             
         Returns:
             验证结果
         """
+        title = news_data.get("title", "")
+        content = news_data.get("content", "")
+        merged_text = f"{title} {content}"
+        
         # 如果没有提供搜索结果，则执行搜索
         if search_results is None:
-            keywords = self.extract_keywords(news_data)
             search_results = []
             
-            # 使用多个关键词组合进行搜索，最多使用前3个
-            for kw in keywords[:3]:
-                kw_results = self.search_web(kw)
+            # 提取关键词
+            keywords = self.extract_keywords(news_data)
+            
+            # 使用多个关键词组合进行搜索，增加搜索成功率
+            for query in keywords[:4]:  # 限制使用前4个关键词以控制API调用次数
+                results = self.search_web(query, num_results=max_results)
                 
-                # 如果这个关键词找到了结果，就添加到总结果中
-                if kw_results:
-                    for result in kw_results:
-                        # 避免重复添加相同链接的结果
-                        if not any(r.get('link') == result.get('link') for r in search_results):
-                            search_results.append(result)
-                    
-                    # 如果已经有足够的结果，可以提前结束搜索
-                    if len(search_results) >= 8:
-                        break
+                # 合并不重复的搜索结果
+                for result in results:
+                    # 检查是否已经有相同的结果
+                    if not any(r['link'] == result['link'] for r in search_results):
+                        # 添加URL信息
+                        result['url'] = result['link']
+                        search_results.append(result)
+                
+                # 如果已经有足够的结果，就停止搜索
+                if len(search_results) >= max_results:
+                    break
         
+        # 如果没有搜索结果，则返回无法验证
         if not search_results:
+            logger.warning("未找到任何与新闻相关的网络搜索结果")
             return {
                 "validation_results": {
                     "trusted_sources_count": 0,
-                    "matching_details_rate": 0,
                     "sources": [],
                     "consistency_score": 0
                 },
-                "risk_adjustment": 0,
-                "explanation": "无法获取验证信息，无网络搜索结果"
+                "explanation": "无法通过网络搜索找到相关信息，无法验证",
+                "risk_adjustment": 0
             }
         
         # 分析搜索结果
-        trusted_sources = [result for result in search_results if result.get('is_trusted', False)]
-        trusted_sources_count = len(trusted_sources)
+        trusted_sources = [r for r in search_results if r.get('is_trusted', False)]
+        untrusted_sources = [r for r in search_results if not r.get('is_trusted', False)]
         
-        # 增强版内容相似度分析
-        news_text = f"{news_data.get('title', '')} {news_data.get('content', '')}"
-        matching_details = 0
-        semantic_matching = 0
+        # 计算可信源结果的一致性
+        consistency_scores = []
+        matched_entities_count = 0
+        matched_data_points_count = 0
         
-        # 提取新闻中的关键实体和数据点
-        entities = self._extract_entities(news_text)
-        data_points = self._extract_data_points(news_text)
+        # 提取新闻中的实体和数据点
+        news_entities = self._extract_entities(merged_text)
+        news_data_points = self._extract_data_points(merged_text)
         
+        # 对每个搜索结果计算一致性分数
         for result in search_results:
             snippet = result.get('snippet', '')
-            if snippet:
-                # 计算新闻中提到的关键信息片段在搜索结果中出现的次数
-                detail_matches = self._count_detail_matches(news_text, snippet)
-                matching_details += detail_matches
-                
-                # 计算实体匹配
-                entity_matches = self._match_entities(entities, snippet)
-                semantic_matching += entity_matches
-                
-                # 计算数据点匹配
-                data_matches = self._match_data_points(data_points, snippet)
-                semantic_matching += data_matches * 2  # 数据匹配权重更高
+            
+            # 计算实体匹配度
+            entity_matches = self._match_entities(news_entities, snippet)
+            matched_entities_count += entity_matches
+            
+            # 计算数据点匹配度
+            data_matches = self._match_data_points(news_data_points, snippet)
+            matched_data_points_count += data_matches
+            
+            # 计算详细匹配度（更精确的文本匹配）
+            detail_matches = self._count_detail_matches(merged_text, snippet)
+            
+            # 综合计算一致性分数 (0-100)
+            result_score = 0
+            if len(news_entities) > 0:
+                result_score += (entity_matches / len(news_entities)) * 40
+            if len(news_data_points) > 0:
+                result_score += (data_matches / len(news_data_points)) * 40
+            result_score += detail_matches * 20
+            
+            # 限制在0-100范围内
+            result_score = min(100, result_score)
+            
+            # 保存分数到搜索结果中
+            result['consistency_score'] = result_score
+            consistency_scores.append(result_score)
         
-        # 计算一致性得分 (0-100)
-        consistency_score = 0
-        if search_results:
-            # 可信来源比例
-            trusted_ratio = trusted_sources_count / len(search_results)
-            
-            # 字面匹配比例（简化计算）
-            matching_ratio = min(1.0, matching_details / (len(search_results) * 3))
-            
-            # 语义匹配比例
-            semantic_ratio = min(1.0, semantic_matching / (len(search_results) * 4))
-            
-            # 综合得分 (加强语义匹配和可信来源的权重)
-            consistency_score = int((trusted_ratio * 0.5 + matching_ratio * 0.2 + semantic_ratio * 0.3) * 100)
+        # 计算总体一致性分数
+        avg_consistency = sum(consistency_scores) / len(consistency_scores) if consistency_scores else 0
         
-        # 根据验证结果调整风险评估
+        # 根据一致性分数和可信源的数量，调整风险评估
+        trusted_count = len(trusted_sources)
         risk_adjustment = 0
         
-        if consistency_score >= 70:
-            # 高一致性，降低风险评估（最多降低20%）
-            risk_adjustment = -20
-            explanation = "多个可信来源交叉验证，细节一致性高"
-        elif consistency_score >= 40:
-            # 中等一致性，略微降低风险（最多降低15%）
+        if trusted_count >= 3 and avg_consistency >= 70:
+            # 多个可信源高度一致，大幅降低风险
             risk_adjustment = -15
-            explanation = "部分可信来源有相关报道，但细节一致性一般"
-        elif consistency_score <= 20:
-            # 低一致性，提高风险评估（最多提高20%）
-            risk_adjustment = +20
-            explanation = "几乎无可信来源报道，或细节严重不一致"
+            explanation = "多个可信来源证实了该新闻内容，大幅降低风险评估"
+        elif trusted_count >= 1 and avg_consistency >= 50:
+            # 至少一个可信源中等一致，适度降低风险
+            risk_adjustment = -10
+            explanation = "至少一个可信来源部分证实了该新闻内容，适度降低风险评估"
+        elif trusted_count == 0 and avg_consistency >= 50:
+            # 无可信源但一致性尚可，小幅降低风险
+            risk_adjustment = -5
+            explanation = "搜索结果与新闻内容部分一致，但缺乏权威来源，小幅降低风险评估"
+        elif avg_consistency <= 20:
+            # 一致性很低，内容可能有误，适度提高风险
+            risk_adjustment = 10
+            explanation = "搜索结果与新闻内容有较大差异，内容可能不准确，提高风险评估"
+        elif trusted_count >= 1 and avg_consistency <= 30:
+            # 可信源不一致，严重提高风险
+            risk_adjustment = 15
+            explanation = "可信来源与新闻内容有较大差异，内容可能失实，严重提高风险评估"
         else:
-            # 一致性不明显，小幅调整（最多调整8%）
-            risk_adjustment = +8
-            explanation = "验证结果不明确，可能存在一些不一致"
+            # 情况不明，不调整风险
+            risk_adjustment = 0
+            explanation = "网络搜索结果无法确定新闻真实性，不调整风险评估"
         
         return {
             "validation_results": {
-                "trusted_sources_count": trusted_sources_count,
-                "matching_details_rate": matching_details,
-                "semantic_matching_rate": semantic_matching,
-                "sources": [{"domain": result.get('domain'), "is_trusted": result.get('is_trusted', False), "title": result.get('title', '')[:50]} 
-                           for result in search_results[:3]],  # 只返回前3个来源，包含标题信息
-                "consistency_score": consistency_score
+                "trusted_sources_count": trusted_count,
+                "consistency_score": round(avg_consistency),
+                "sources": [
+                    {
+                        "domain": source.get('domain', ''),
+                        "title": source.get('title', ''),
+                        "is_trusted": source.get('is_trusted', False),
+                        "url": source.get('link', ''),
+                        "snippet": source.get('snippet', '')
+                    } 
+                    for source in search_results[:max_results]  # 保留更多搜索结果
+                ]
             },
-            "risk_adjustment": risk_adjustment,
-            "explanation": explanation
+            "explanation": explanation,
+            "risk_adjustment": risk_adjustment
         }
     
     def _extract_entities(self, text: str) -> List[str]:

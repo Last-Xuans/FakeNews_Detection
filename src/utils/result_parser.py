@@ -119,9 +119,7 @@ class ResultParser:
 
         # 处理知识截止日期问题导致的"无法验证"情况
         if result["metadata"]["knowledge_cutoff_issue"]:
-            # 在结论中添加知识截止日期问题说明
-            result["conclusion"]["explanation"] += "\n\n注意：部分规则因超出模型知识截止日期而无法验证，建议通过网络搜索获取最新信息"
-            
+            # 不在这里添加解释文本，避免与detector.py中的提示重复
             # 将"无法验证"标记为需要网络验证
             result["requires_web_validation"] = True
             

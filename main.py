@@ -2,18 +2,41 @@ import argparse
 import json
 import sys
 import os
+import logging
 from dotenv import load_dotenv
 
-# 强制加载.env文件的配置，覆盖系统环境变量
-load_dotenv(override=True)
+# 加载环境变量
+load_dotenv()
 
-# 添加项目路径
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# 配置日志
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# 添加项目根目录到系统路径，确保能够正确导入模块
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.core.detector import FakeNewsDetector
 from src.web.app import launch_app
 from config import GOOGLE_SEARCH_CONFIG, WEB_CONFIG
 
+# 从环境变量中读取Google API配置
+google_api_key = os.getenv("GOOGLE_API_KEY", "")
+google_search_engine_id = os.getenv("GOOGLE_SEARCH_ENGINE_ID", "")
+enable_search = os.getenv("ENABLE_WEB_SEARCH", "false").lower() == "true"
+
+# 检查大模型API配置
+llm_api_key = os.getenv("LLM_API_KEY", "")
+llm_api_url = os.getenv("LLM_API_URL", "")
+llm_model = os.getenv("LLM_MODEL", "")
+
+# 显示当前API配置
+if llm_api_key:
+    masked_key = llm_api_key[:4] + "****" + llm_api_key[-4:] if len(llm_api_key) > 8 else "****"
+    print(f"当前API配置: URL={llm_api_url}, MODEL={llm_model}, KEY={masked_key}")
+else:
+    logger.warning("未配置LLM API信息，系统将无法运行")
+    print("错误: 未配置LLM API信息，请在.env中添加必要的配置")
+    sys.exit(1)
 
 def run_tests(test_file_path, enable_web_search=False):
     """运行测试用例
@@ -62,34 +85,38 @@ def run_tests(test_file_path, enable_web_search=False):
 
     print("\n测试完成!")
 
-
 def main():
-    """主入口函数"""
-    # 打印当前API配置，便于调试
-    from config import LLM_API_CONFIG
-    masked_api_key = LLM_API_CONFIG["API_KEY"][:4] + "****" + LLM_API_CONFIG["API_KEY"][-4:] if len(LLM_API_CONFIG["API_KEY"]) > 8 else "****"
-    print(f"当前API配置: URL={LLM_API_CONFIG['API_URL']}, MODEL={LLM_API_CONFIG['MODEL']}, KEY={masked_api_key}")
+    """程序入口函数"""
     
-    parser = argparse.ArgumentParser(description="虚假新闻检测系统")
-    parser.add_argument('--web', action='store_true', help="启动Web界面")
-    parser.add_argument('--test', action='store_true', help="运行测试用例")
-    parser.add_argument('--test-file', default='data/test_cases.json', help="测试文件路径")
-    parser.add_argument('--web-search', action='store_true', help="启用网络搜索验证")
-    parser.add_argument('--port', type=int, default=WEB_CONFIG["PORT"], help="Web服务端口号")
-
+    parser = argparse.ArgumentParser(description='虚假新闻检测系统')
+    parser.add_argument('--web', action='store_true', help='启动Web界面')
+    parser.add_argument('--web-search', action='store_true', help='启用网络搜索验证功能')
+    parser.add_argument('--port', type=int, help='指定Web服务端口')
+    
     args = parser.parse_args()
-
-    # 根据命令行参数覆盖配置
-    enable_web_search = args.web_search or GOOGLE_SEARCH_CONFIG["ENABLED"]
-
-    if args.test:
-        run_tests(args.test_file, enable_web_search=enable_web_search)
-    elif args.web:
-        launch_app(enable_web_search=enable_web_search, port=args.port)
+    
+    # 检查是否启用Web界面
+    if args.web:
+        # 基于命令行参数与环境变量决定是否启用网络搜索
+        # 如果命令行参数指定了web-search，或者环境变量ENABLE_WEB_SEARCH为true
+        web_search_enabled = args.web_search or enable_search
+        
+        # 检查是否有Google API配置
+        if web_search_enabled:
+            # 检查API密钥是否配置正确
+            if not google_api_key or not google_search_engine_id:
+                logger.warning("网络搜索功能已启用，但Google API信息不完整，将禁用网络搜索功能")
+                print("警告: 要启用网络搜索验证功能，请在.env中配置GOOGLE_API_KEY和GOOGLE_SEARCH_ENGINE_ID")
+                web_search_enabled = False
+            else:
+                print("网络搜索验证功能已启用，但用户可以在界面中通过按钮选择是否使用")
+                
+        # 启动Web应用
+        launch_app(enable_web_search=web_search_enabled, port=args.port)
     else:
-        print("请指定运行模式: --web 启动Web界面 或 --test 运行测试")
-        print("可选参数: --web-search 启用网络搜索验证功能, --port 指定Web端口")
-
+        # 如果没有指定Web模式，显示帮助信息
+        parser.print_help()
+        print("\n推荐使用Web界面模式: python main.py --web")
 
 if __name__ == "__main__":
     main()
