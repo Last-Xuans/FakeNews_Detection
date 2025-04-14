@@ -49,7 +49,7 @@ DEBUG_MODE=false
 
 ## 使用方法
 
-### 启动
+### 本地启动
 
 ```bash
 python main.py --web
@@ -62,6 +62,21 @@ python main.py --web
 ```bash
 python main.py --web --port 7865
 ```
+
+
+
+### docker启动
+
+```bash
+chmod +x ./start.sh
+./start.sh
+```
+
+然后在浏览器访问 http://localhost:7860
+
+
+
+### 自定义端口启动（如果默认
 
 ## 检测规则说明
 
@@ -132,3 +147,4 @@ python main.py --web --port 7865
 2. 本地部署小型模型，减少API依赖和延迟
 3. 专业领域垂直检测模型，如科技/医疗/财经等特定领域
 4. 历史新闻数据库集成，建立更可靠的验证来源
+5. 

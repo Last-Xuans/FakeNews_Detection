@@ -342,7 +342,7 @@ def launch_app(enable_web_search=False, port=None):
     
     # 尝试启动应用，如果端口被占用则尝试其他端口
     try:
-        app.launch(server_port=server_port)
+        app.launch(server_port=server_port,server_name="0.0.0.0")
     except OSError as e:
         if "address already in use" in str(e).lower():
             print(f"端口 {server_port} 已被占用，尝试使用其他端口...")
@@ -363,4 +363,5 @@ def launch_app(enable_web_search=False, port=None):
 
 if __name__ == "__main__":
     launch_app()
+    
 
